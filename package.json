@@ -1,0 +1,16 @@
+{
+  "name": "hexo-imagesize-intrinsic",
+  "version": "1.0.0",
+  "description": "Hexo filter: embed intrinsic width/height for remote <img> at build time to reduce CLS.",
+  "main": "index.js",
+  "keywords": ["hexo", "hexo-plugin", "images", "CLS", "performance", "intrinsic"],
+  "author": "Keldos Li <hi@keldos.me>",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "peerDependencies": { "hexo": ">=6" },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "cli-progress": "^3.12.0",
+    "probe-image-size": "^7.2.3"
+  }
+}
