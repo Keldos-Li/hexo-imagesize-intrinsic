@@ -1,0 +1,27 @@
+# 忽略 node_modules 和日志
+node_modules/
+logs
+*.log
+
+# 忽略测试、文档和配置
+*.test.js
+*.spec.js
+test/
+docs/
+.DS_Store
+.idea/
+.vscode/
+
+# 忽略源码控制和构建产物
+.git/
+.gitignore
+*.tgz
+
+# 忽略 Hexo 相关生成内容
+public/
+db.json
+.deploy*/
+
+# 忽略环境变量
+.env
+.env.*
