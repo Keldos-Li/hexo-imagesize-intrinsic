@@ -94,9 +94,26 @@ async function loadJson(p, def = {}) { try { return JSON.parse(await fsp.readFil
 async function saveJson(p, data) { await fsp.mkdir(path.dirname(p), { recursive: true }); await fsp.writeFile(p, JSON.stringify(data, null, 2)); }
 async function mergeCache(cacheFile, inMem) {
   const onDisk = await loadJson(cacheFile, {});
+  let cleaned = 0;
+  
+  // 添加新条目或更新现有条目
   for (const k of Object.keys(inMem)) {
     if (!onDisk[k] || !onDisk[k].width || !onDisk[k].height) onDisk[k] = inMem[k];
   }
+  
+  // 清理未使用的条目
+  if (usedImageUrls.size > 0) {
+    const unusedKeys = Object.keys(onDisk).filter(k => !usedImageUrls.has(k));
+    unusedKeys.forEach(k => {
+      delete onDisk[k];
+      cleaned++;
+    });
+    if (cleaned > 0) {
+      logVerbose(`清理了 ${cleaned} 个未使用的缓存条目`);
+      runTotals.cleaned = cleaned;
+    }
+  }
+  
   return onDisk;
 }
 function buildCacheKey(url) {
@@ -106,9 +123,11 @@ function buildCacheKey(url) {
 }
 
 // 运行统计
-const runTotals = { pages: 0, imgs_total: 0, wrote: 0, cached: 0, failed: 0, skipped: 0 };
+const runTotals = { pages: 0, imgs_total: 0, wrote: 0, cached: 0, failed: 0, skipped: 0, cleaned: 0 };
 // 页面报告
 const runMap = new Map();
+// 用于跟踪本次运行中实际使用的URL
+const usedImageUrls = new Set();
 function addRec(pageId, url, status, reason) {
   if (!runMap.has(pageId)) runMap.set(pageId, { page: pageId, images: [] });
   const rec = { url, status };
@@ -216,6 +235,8 @@ hexo.extend.filter.register('after_post_render', async function(data) {
         const h = parseInt($img.attr('height'), 10);
         if (Number.isFinite(w) && Number.isFinite(h)) {
           cache[key] = { width: w, height: h };
+          // 记录使用的URL
+          usedImageUrls.add(key);
           pageTotals.cached++; addRec(pageId, safe, 'cached-present', 'had-size');
           replaces.push({ start: item.index, end: item.index + item.match.length, html: $img.toString() }); tick(); continue;
         }
@@ -229,6 +250,8 @@ hexo.extend.filter.register('after_post_render', async function(data) {
       $img.attr('width', cache[key].width);
       $img.attr('height', cache[key].height);
       pageTotals.cached++; addRec(pageId, safe, 'cached');
+      // 记录使用的URL
+      usedImageUrls.add(key);
       replaces.push({ start: item.index, end: item.index + item.match.length, html: $img.toString() }); tick(); continue;
     }
 
@@ -240,6 +263,8 @@ hexo.extend.filter.register('after_post_render', async function(data) {
           cache[key] = { width, height };
           $img.attr('width', width);
           $img.attr('height', height);
+          // 记录使用的URL
+          usedImageUrls.add(key);
           pageTotals.wrote++; addRec(pageId, finalURL, 'wrote');
         } else {
           pageTotals.failed++; addRec(pageId, finalURL, 'failed', 'no-size');
@@ -298,7 +323,7 @@ hexo.extend.filter.register('after_generate', async function() {
     globals.barStarted = false;
   }
 
-  logSummary(`[total] pages=${runTotals.pages} imgs=${runTotals.imgs_total} wrote=${runTotals.wrote} cached=${runTotals.cached} failed=${runTotals.failed} skipped=${runTotals.skipped}`);
+  logSummary(`[total] pages=${runTotals.pages} imgs=${runTotals.imgs_total} wrote=${runTotals.wrote} cached=${runTotals.cached} failed=${runTotals.failed} skipped=${runTotals.skipped} cleaned=${runTotals.cleaned || 0}`);
   const pages = Array.from(runMap.values());
   await saveJson(RUN_REPORT, { pages });
   logSummary(`run report -> ${path.relative(SITE_ROOT, RUN_REPORT)}`);
