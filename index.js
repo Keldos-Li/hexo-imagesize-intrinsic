@@ -15,6 +15,8 @@
  *     referer: ""                  // 快捷设置 Referer
  *     whitelist: []                // 只处理这些域名；空数组=不限制
  *     cache_present_with_size: true// 将已带尺寸的远程图也登记到缓存
+ *     cleanup_unused: false        // 新增：缓存清理控制（默认不清理）
+ *     cleanup_ttl_days: 0          // 新增：缓存清理 TTL（默认 0，不清理）
  */
 
 if (global.__hexo_imagesize_intrinsic_registered__) return;
@@ -54,7 +56,9 @@ const defaults = {
   },
   referer: '',
   whitelist: [],
-  cache_present_with_size: true
+  cache_present_with_size: true,
+  cleanup_unused: false,        // 新增：缓存清理控制（默认不清理）
+  cleanup_ttl_days: 0          // 新增：缓存清理 TTL（默认 0，不清理）
 };
 const siteCfg = (hexo.config && hexo.config.imagesize_intrinsic) || {};
 const CFG = Object.assign({}, defaults, siteCfg);
@@ -94,26 +98,18 @@ async function loadJson(p, def = {}) { try { return JSON.parse(await fsp.readFil
 async function saveJson(p, data) { await fsp.mkdir(path.dirname(p), { recursive: true }); await fsp.writeFile(p, JSON.stringify(data, null, 2)); }
 async function mergeCache(cacheFile, inMem) {
   const onDisk = await loadJson(cacheFile, {});
-  let cleaned = 0;
-  
-  // 添加新条目或更新现有条目
+  const now = Date.now();
+
+  // 合并新条目或更新现有条目，并维护 last_seen（仅合并，不清理）
   for (const k of Object.keys(inMem)) {
-    if (!onDisk[k] || !onDisk[k].width || !onDisk[k].height) onDisk[k] = inMem[k];
-  }
-  
-  // 清理未使用的条目
-  if (usedImageUrls.size > 0) {
-    const unusedKeys = Object.keys(onDisk).filter(k => !usedImageUrls.has(k));
-    unusedKeys.forEach(k => {
-      delete onDisk[k];
-      cleaned++;
-    });
-    if (cleaned > 0) {
-      logVerbose(`清理了 ${cleaned} 个未使用的缓存条目`);
-      runTotals.cleaned = cleaned;
+    const v = inMem[k];
+    if (!onDisk[k] || !onDisk[k].width || !onDisk[k].height) onDisk[k] = v;
+    if (usedImageUrls.has(k)) {
+      onDisk[k].last_seen = now;
+    } else {
+      onDisk[k].last_seen = onDisk[k].last_seen || now;
     }
   }
-  
   return onDisk;
 }
 function buildCacheKey(url) {
@@ -228,6 +224,9 @@ hexo.extend.filter.register('after_post_render', async function(data) {
     const safe = safeURL(rawSrc);
     const key = buildCacheKey(safe);
 
+    // 立即记录：本次运行确认为远程且在白名单的图片
+    usedImageUrls.add(key);
+
     // 已带尺寸：可选入缓存
     if ($img.attr('width') && $img.attr('height')) {
       if (CFG.cache_present_with_size && (!cache[key] || !cache[key].width || !cache[key].height)) {
@@ -313,7 +312,7 @@ hexo.extend.filter.register('after_post_render', async function(data) {
   return data;
 }, 0);
 
-// 收尾：停进度条，打印总计与报告
+// 收尾：停进度条，打印总计与报告 + 统一清理
 hexo.extend.filter.register('after_generate', async function() {
   if (!CFG.enabled || CFG.log_level === 'off') return;
 
@@ -322,6 +321,38 @@ hexo.extend.filter.register('after_generate', async function() {
     globals.bar = null;
     globals.barStarted = false;
   }
+
+  // 统一执行缓存清理（全站页面处理完成后）
+  const now = Date.now();
+  const cacheOnDisk = await loadJson(CACHE_FILE, {});
+
+  // 更新所有本次使用的条目的 last_seen
+  for (const k of usedImageUrls) {
+    if (cacheOnDisk[k]) cacheOnDisk[k].last_seen = now;
+  }
+
+  let cleaned = 0;
+  if (CFG.cleanup_unused) {
+    const ttlDays = Number(CFG.cleanup_ttl_days || 0);
+    if (ttlDays > 0) {
+      const cutoff = now - ttlDays * 24 * 60 * 60 * 1000;
+      for (const k of Object.keys(cacheOnDisk)) {
+        if (!usedImageUrls.has(k) && (!cacheOnDisk[k].last_seen || cacheOnDisk[k].last_seen < cutoff)) {
+          delete cacheOnDisk[k]; cleaned++;
+        }
+      }
+      if (cleaned > 0) logVerbose(`清理了 ${cleaned} 个过期的缓存条目（>${ttlDays} 天未使用）`);
+    } else {
+      // TTL=0：清理本次运行未出现的条目（用于删除已从博客移除的图片）
+      for (const k of Object.keys(cacheOnDisk)) {
+        if (!usedImageUrls.has(k)) { delete cacheOnDisk[k]; cleaned++; }
+      }
+      if (cleaned > 0) logVerbose(`清理了 ${cleaned} 个本次未使用的缓存条目`);
+    }
+    runTotals.cleaned += cleaned;
+  }
+
+  await saveJson(CACHE_FILE, cacheOnDisk);
 
   logSummary(`[total] pages=${runTotals.pages} imgs=${runTotals.imgs_total} wrote=${runTotals.wrote} cached=${runTotals.cached} failed=${runTotals.failed} skipped=${runTotals.skipped} cleaned=${runTotals.cleaned || 0}`);
   const pages = Array.from(runMap.values());
