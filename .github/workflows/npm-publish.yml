@@ -29,6 +29,29 @@ jobs:
       - name: Test
         run: npm test --if-present
         
+  diagnose:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+      - name: Install
+        run: npm ci
+      - name: Debug npm environment
+        run: |
+          node -v
+          npm -v
+          npm config get registry
+          npm config list -l | sed -n '1,120p'
+          npm whoami || true
+      - name: Dry run publish (no upload)
+        run: npm publish --dry-run
+
   publish:
     needs: build
     runs-on: ubuntu-latest
@@ -41,8 +64,6 @@ jobs:
       - run: npm ci
       - name: Publish to npm
         run: npm publish
-        # env:
-        #   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
