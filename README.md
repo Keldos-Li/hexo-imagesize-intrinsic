@@ -37,6 +37,7 @@ and wrote width/height attributes into the `<img>`.
 - ✅ Configurable **concurrency**, **timeout**, **retry**, **headers**, **referer**  
 - ✅ Optional **progress bar** (on stderr)  
 - ✅ Three log levels: `off | summary | verbose`
+ - ✅ Optional **cache cleanup** (remove unused or TTL-expired entries)
 
 
 ## Install
@@ -74,6 +75,8 @@ This is usually enough for most sites.
 | `headers`                 | `{}`      | Extra request headers (merged with defaults)                                |
 | `whitelist`               | `[]`      | List of hostnames to process; empty = all remote images                     |
 | `cache_present_with_size` | `true`    | Cache images that already have width/height, so other pages can reuse       |
+| `cleanup_unused`          | `false`   | Enable cache cleanup after generate; when `true`, removes unused or expired entries |
+| `cleanup_ttl_days`        | `0`       | TTL for cache entries in days; `> 0` removes entries not seen within TTL; `0` removes entries unused in the current run |
 
 ## Output
 
@@ -102,7 +105,7 @@ This is usually enough for most sites.
 - **Logs**:
     - summary → only final two lines:
       ```log
-      [imgsize] [total] pages=23 imgs=157 wrote=100 cached=50 failed=5 skipped=2
+  [imgsize] [total] pages=23 imgs=157 wrote=100 cached=50 failed=5 skipped=2 cleaned=12
       [imgsize] run report -> .cache/imgsize-run-report.json
       ```
 	- verbose → per-page + per-image detail.
@@ -115,6 +118,7 @@ This is usually enough for most sites.
 - If you had a **theme script** doing similar work, remove it to avoid duplication.  
 - You can increase `concurrency` (e.g. 12–16) to speed up builds, depending on your network and image host.  
 - `timeout_ms` and `retry` can be tuned for stability.  
+- Cache stores a `last_seen` timestamp per URL; when `cleanup_unused` is enabled, cleanup runs in Hexo’s `after_generate` phase using `cleanup_ttl_days` (TTL-based) or current-run usage (TTL = 0).
 
 ## License
 
