@@ -29,7 +29,7 @@ jobs:
       - name: Test
         run: npm test --if-present
 
-  publish:
+  publish-npm:
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -41,6 +41,29 @@ jobs:
       - run: npm ci
       - name: Publish to npm
         run: npm publish
+
+  publish-gpr:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com/
+      - run: npm ci
+      - name: Setup for GitHub Packages
+        run: npm pkg set name="@keldos-li/hexo-imagesize-intrinsic"
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  release:
+    needs: [publish-npm, publish-gpr]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
